@@ -1,13 +1,13 @@
-# Slack Toxicity Monitor
+# Slack Content Gateway Safety
 
-A Slack app that flags threatening or offensive messages in real time. The project uses OpenAI's GPT-4o to analyze language so users can receive a gentle warning before conversations escalate.
+A Slack-integrated service that evaluates messages in near real time and generates configurable safety signals. It uses OpenAI’s GPT-4o as a classification component to support sender-side nudges and optional review workflows, helping teams de-escalate risky messages before they spread.
 
 ## Features
 
-- Detects aggression, harassment, or threats in Slack channels.
-- Posts a warning in the same channel and tags the author.
-- Works with Kubernetes via Minikube for easy local testing.
-- Secrets are stored using Bitnami Sealed Secrets.
+- Classifies messages for elevated risk signals with configurable thresholds.
+- Supports interventions such as private, sender-side feedback (and optional routing for review).
+- Runs locally on Kubernetes (Minikube) for fast iteration and end-to-end testing.
+- Manages sensitive configuration using Bitnami Sealed Secrets.
 
 ## Tech Stack
 
