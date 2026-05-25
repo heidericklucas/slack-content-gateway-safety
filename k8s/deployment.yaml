@@ -1,25 +1,94 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: slack-toxicity-monitor
+  name: slack-content-gateway
+  labels:
+    app.kubernetes.io/name: slack-content-gateway
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: content-safety
 spec:
-  replicas: 1
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
-      app: slack-toxicity-monitor
+      app.kubernetes.io/name: slack-content-gateway
   template:
     metadata:
       labels:
-        app: slack-toxicity-monitor
+        app.kubernetes.io/name: slack-content-gateway
+        app.kubernetes.io/component: api
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
       containers:
         - name: app
-          image: lucashvieira/slack-toxicity-monitor:1.0.1
+          image: lucashvieira/slack-content-gateway:0.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
           env:
             - name: PORT
               value: "5000"
           envFrom:
+            - configMapRef:
+                name: slack-content-gateway-config
             - secretRef:
                 name: slack-secret
             - secretRef:
                 name: openai-secret
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: hf-cache
+              mountPath: /opt/hf-cache
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: hf-cache
+          emptyDir: {}

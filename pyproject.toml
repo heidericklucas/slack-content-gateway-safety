@@ -1,0 +1,127 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slack-content-gateway-safety"
+version = "0.2.0"
+description = "Slack moderation gateway — flags risky messages using GPT-4o and semantic embeddings."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Lucas Vieira", email = "heidericklucas@gmail.com" }]
+keywords = ["slack", "moderation", "openai", "gpt-4o", "toxicity", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+]
+
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "slack-bolt>=1.21,<2.0",
+    "slack-sdk>=3.34,<4.0",
+    "openai>=1.50,<2.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.5,<3.0",
+    "structlog>=24.4,<26.0",
+    "tenacity>=9.0,<10.0",
+    "python-dotenv>=1.0,<2.0",
+    "sentence-transformers>=3.0,<6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<2.0",
+    "pytest-cov>=5.0,<7.0",
+    "httpx>=0.28,<1.0",
+    "respx>=0.21,<1.0",
+    "ruff>=0.7,<1.0",
+    "mypy>=1.13,<2.0",
+    "types-requests>=2.32,<3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/heidericklucas/slack-content-gateway-safety"
+Repository = "https://github.com/heidericklucas/slack-content-gateway-safety"
+Issues = "https://github.com/heidericklucas/slack-content-gateway-safety/issues"
+
+[project.scripts]
+slack-content-gateway = "app.main:main"
+
+[tool.setuptools]
+packages = ["app", "app.classifier", "app.slack"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "ASYNC",
+    "S",    # flake8-bandit
+    "C4",   # flake8-comprehensions
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+    "RUF",
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "S101",  # asserts are fine in tests; mypy can also use them
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["sentence_transformers.*", "tenacity.*", "slack_bolt.*", "uvicorn.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:slack_bolt.*",
+    "ignore::DeprecationWarning:slack_sdk.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/main.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
