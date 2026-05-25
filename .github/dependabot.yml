@@ -1,0 +1,36 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      runtime:
+        patterns:
+          - "fastapi"
+          - "uvicorn*"
+          - "slack-*"
+          - "openai"
+          - "pydantic*"
+          - "structlog"
+          - "tenacity"
+          - "python-dotenv"
+          - "sentence-transformers"
+      dev:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "mypy"
+          - "httpx"
+          - "respx"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly

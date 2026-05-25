@@ -1,94 +1,183 @@
 # Slack Content Gateway Safety
 
-A Slack-integrated service that evaluates messages in near real time and generates configurable safety signals. It uses OpenAI’s GPT-4o as a classification component to support sender-side nudges and optional review workflows, helping teams de-escalate risky messages before they spread.
+[![CI](https://github.com/heidericklucas/slack-content-gateway-safety/actions/workflows/ci.yml/badge.svg)](https://github.com/heidericklucas/slack-content-gateway-safety/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-## Features
+A Slack moderation gateway that evaluates messages in near real time and
+nudges senders before escalation spreads. It combines three classifiers — a
+rule-based keyword filter, sentence-embedding similarity to known threat
+patterns, and GPT‑4o — into a composable pipeline with explicit
+short-circuit semantics for legitimate legal speech.
 
-- Classifies messages for elevated risk signals with configurable thresholds.
-- Supports interventions such as private, sender-side feedback (and optional routing for review).
-- Runs locally on Kubernetes (Minikube) for fast iteration and end-to-end testing.
-- Manages sensitive configuration using Bitnami Sealed Secrets.
+The repo is a portfolio piece: it demonstrates production-grade Python
+(FastAPI, async, structured logging, typed Pydantic settings, full pytest
+suite), AI/LLM integration (OpenAI Chat Completions, embeddings),
+container/K8s hygiene (multi-stage non-root image, probes, sealed secrets),
+and CI/CD (ruff, mypy, pytest, dependabot).
 
-## Tech Stack
+---
 
-- **Flask** – Lightweight Python web framework powering the API.
-- **Slack SDK** – Receives events and posts messages back to Slack.
-- **OpenAI GPT-4o** – Provides nuanced toxicity classification.
-- **Kubernetes** – Deployment target with accompanying manifests.
+## How it works
 
-## Prerequisites
-
-Create a Slack app and obtain the following credentials:
-
-- `SLACK_SIGNING_SECRET`
-- `SLACK_BOT_TOKEN`
-- `OPENAI_API_KEY`
-
-You can copy `.env.example` and populate it with your values.
-
-## Running Locally
-
-Install dependencies and start the Flask server:
-
-```bash
-pip install -r requirements.txt
-python app/main.py
+```mermaid
+flowchart LR
+    Slack["Slack workspace"] -->|"POST /slack/events"| FastAPI
+    FastAPI -->|"signature verified"| Bolt["slack_bolt AsyncApp"]
+    Bolt -->|"ack() within 3s"| Slack
+    Bolt -->|"asyncio task"| Handler["MessageHandler"]
+    Handler -->|"context"| Slack
+    Handler --> Pipeline["ClassifierPipeline"]
+    Pipeline --> Keyword["KeywordClassifier<br/>legal guard · explicit threats · slurs"]
+    Pipeline --> Embed["EmbeddingThreatClassifier<br/>SBERT cosine similarity"]
+    Pipeline --> LLM["OpenAIClassifier<br/>GPT-4o · JSON mode · tenacity retries"]
+    Pipeline --> Aggregator{"Aggregate &<br/>winning_category()"}
+    Aggregator -->|":rotating_light: warning"| Slack
 ```
 
-Alternatively, build and run the Docker image:
+* **Signature verification** is enforced on the raw request bytes by
+  `slack_bolt`, before the body is parsed.
+* **Acks within 3 seconds.** The HTTP handler returns immediately and the
+  expensive work runs in a background `asyncio` task.
+* **Legal-speech short-circuit.** If a message asserts a legal right
+  (privacy, attorney-general complaints, etc.), the pipeline stops and no
+  warning is posted — users invoking their rights aren't moderated.
+* **Pluggable classifiers.** Each classifier implements `AsyncClassifier`
+  and emits `Signal` objects. New signals (e.g. perspective-api, custom
+  rules) can be added without touching the handler.
+* **Priority-based routing.** When multiple categories trigger, the most
+  severe one wins via `CATEGORY_PRIORITY`.
+
+## Configuration
+
+All settings come from environment variables (see [`.env.example`](.env.example)).
+Required:
+
+| Variable                | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| `SLACK_SIGNING_SECRET`  | HMAC signing secret from the Slack app's *Basic info*   |
+| `SLACK_BOT_TOKEN`       | `xoxb-…` token with `chat:write`, `channels:history`    |
+| `OPENAI_API_KEY`        | OpenAI key with access to `gpt-4o`                      |
+
+Optional (defaults shown):
+
+| Variable                          | Default                                                  | Description                                       |
+| --------------------------------- | -------------------------------------------------------- | ------------------------------------------------- |
+| `OPENAI_MODEL`                    | `gpt-4o`                                                 | OpenAI model id                                   |
+| `OPENAI_TIMEOUT_SECONDS`          | `15`                                                     | Per-request timeout                               |
+| `EMBEDDING_ENABLED`               | `true`                                                   | Toggle SBERT classifier                           |
+| `EMBEDDING_MODEL`                 | `sentence-transformers/paraphrase-MiniLM-L6-v2`          | HuggingFace model id                              |
+| `LOG_LEVEL` / `LOG_FORMAT`        | `INFO` / `json`                                          | Structlog level + renderer (`json` or `console`)  |
+| `CONTEXT_MESSAGE_LIMIT`           | `20`                                                     | Slack history fetched for context                 |
+| `MAX_RETRY_ATTEMPTS`              | `2`                                                      | Honour Slack's `X-Slack-Retry-Num`                |
+| `THRESHOLD_*`                     | see [`app/config.py`](app/config.py)                     | Per-category score thresholds                     |
+
+## Running locally
 
 ```bash
-docker build -t slack-toxicity-monitor .
-docker run -p 5000:5000 --env-file .env slack-toxicity-monitor
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env  # then fill in real values
+
+# Run the API
+python -m app.main
+# → http://localhost:5000  (docs at /docs)
 ```
 
-The app will be available on `http://localhost:5000`.
-
-## Kubernetes Deployment
-
-If you want to try the project on Minikube:
-
-1. Reseal the Kubernetes secrets with your credentials:
-
-   ```bash
-   kubectl create secret generic slack-secret \
-     --dry-run=client \
-     --from-literal=SLACK_SIGNING_SECRET='your-signing-secret' \
-     --from-literal=SLACK_BOT_TOKEN='your-bot-token' \
-     -o yaml | kubeseal \
-     --controller-name=sealed-secrets-controller \
-     --controller-namespace=default \
-     --format yaml > k8s/slack-secret-sealed.yaml
-
-   kubectl create secret generic openai-secret \
-     --dry-run=client \
-     --from-literal=OPENAI_API_KEY='your-api-key' \
-     -o yaml | kubeseal \
-     --controller-name=sealed-secrets-controller \
-     --controller-namespace=default \
-     --format yaml > k8s/openai-secret-sealed.yaml
-   ```
-
-2. Apply the manifests:
-
-   ```bash
-   kubectl apply -f k8s/
-   ```
-
-3. Expose the service:
-
-   ```bash
-   minikube service slack-toxicity-monitor
-   ```
-
-## Logs
-
-You can inspect activity via:
+Or in Docker:
 
 ```bash
-kubectl logs deployment/slack-toxicity-monitor
+docker build -t slack-content-gateway:dev .
+docker run --rm -p 5000:5000 --env-file .env slack-content-gateway:dev
+```
+
+Expose to Slack via a tunnel (e.g. `ngrok http 5000`) and set the **Events API**
+request URL to `https://<tunnel>/slack/events`.
+
+## Testing
+
+```bash
+pytest                           # full suite, no network
+pytest --cov=app                 # with coverage
+ruff check . && ruff format --check .
+mypy app
+```
+
+The 46-test suite runs in well under a second by mocking the OpenAI and
+Slack clients. The embedding classifier is disabled in CI to avoid
+pulling in torch — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+## Kubernetes deployment
+
+The manifests in [`k8s/`](k8s) ship with hardened defaults:
+
+* `runAsNonRoot`, `readOnlyRootFilesystem`, `drop: [ALL]` capabilities
+* CPU/memory requests + limits
+* Startup, readiness, and liveness probes against `/readyz` and `/healthz`
+* Non-secret config in a `ConfigMap`, secrets sealed via Bitnami
+  [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets)
+
+Reseal secrets with your credentials and apply:
+
+```bash
+kubectl create secret generic slack-secret --dry-run=client \
+  --from-literal=SLACK_SIGNING_SECRET='…' \
+  --from-literal=SLACK_BOT_TOKEN='xoxb-…' \
+  -o yaml | kubeseal --format yaml > k8s/slack-secret-sealed.yaml
+
+kubectl create secret generic openai-secret --dry-run=client \
+  --from-literal=OPENAI_API_KEY='sk-…' \
+  -o yaml | kubeseal --format yaml > k8s/openai-secret-sealed.yaml
+
+kubectl apply -k k8s/
+```
+
+On Minikube:
+
+```bash
+minikube start
+minikube image build -t lucashvieira/slack-content-gateway:0.2.0 .
+kubectl apply -k k8s/
+kubectl patch svc slack-content-gateway -p '{"spec":{"type":"NodePort"}}'
+minikube service slack-content-gateway
+```
+
+## Security model
+
+| Threat                                | Mitigation                                                                 |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| Forged Slack events                   | `slack_bolt` HMAC verification on the raw request bytes                    |
+| Replay attacks                        | Slack's `X-Slack-Request-Timestamp` window enforced by `slack_bolt`        |
+| Slack retry storms                    | `X-Slack-Retry-Num` honoured; over-limit retries dropped                   |
+| Long-running handlers > 3 s timeout   | HTTP ack happens immediately; classification is a background `asyncio` task |
+| Container compromise                  | Non-root UID 1000, read-only rootfs, all caps dropped, seccomp `RuntimeDefault` |
+| Secret leakage in logs                | `SecretStr` from Pydantic — secrets never str()-render                     |
+| Dependency drift                      | Pinned ranges + Dependabot weekly PRs                                      |
+
+## Project layout
+
+```
+app/
+├── classifier/         # AsyncClassifier protocol + 3 implementations
+│   ├── base.py
+│   ├── keyword.py      #   rule-based: legal guard, threats, slurs
+│   ├── embeddings.py   #   SBERT cosine similarity to threat exemplars
+│   ├── llm.py          #   OpenAI GPT-4o, tenacity retries, JSON mode
+│   └── pipeline.py     #   short-circuit composition
+├── slack/
+│   ├── bolt_app.py     # slack_bolt AsyncApp, sig verify, retry guard
+│   ├── handlers.py     # MessageHandler — fetch context → classify → warn
+│   └── warnings.py     # warning templates
+├── config.py           # Pydantic Settings with SecretStr
+├── logging_config.py   # structlog (JSON in prod, pretty locally)
+├── schemas.py          # Verdict, Signal, Category, priority table
+└── main.py             # FastAPI factory; /healthz, /readyz, /slack/events
+tests/                  # 46 tests — fully mocked
+k8s/                    # Deployment, Service, ConfigMap, kustomization, sealed secrets
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE)
