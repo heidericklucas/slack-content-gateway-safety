@@ -11,11 +11,61 @@ rule-based keyword filter, sentence-embedding similarity to known threat
 patterns, and GPT‑4o — into a composable pipeline with explicit
 short-circuit semantics for legitimate legal speech.
 
-The repo is a portfolio piece: it demonstrates production-grade Python
-(FastAPI, async, structured logging, typed Pydantic settings, full pytest
-suite), AI/LLM integration (OpenAI Chat Completions, embeddings),
-container/K8s hygiene (multi-stage non-root image, probes, sealed secrets),
-and CI/CD (ruff, mypy, pytest, dependabot).
+> **About this repo.** This is a portfolio project — a real, runnable
+> service designed to put a broad set of engineering decisions on display
+> in a single, reviewable codebase. Each section below is annotated with
+> the *why* behind the choice, not just the *what*.
+
+---
+
+## What this project shows
+
+**Backend Python (production patterns).** FastAPI with an application
+factory; `slack_bolt` `AsyncApp` mounted at `/slack/events` so signature
+verification runs on the raw bytes; the HTTP handler acks within Slack's
+3-second deadline and offloads work to an `asyncio` task with strong
+references held in a set to survive GC. `pydantic-settings` with
+`SecretStr` fails fast at startup instead of crashing on the first event.
+`structlog` provides JSON logs in production and contextvars for
+request-scoped fields.
+
+**Architecture & design.** An `AsyncClassifier` Protocol with three
+implementations (keyword rules, SBERT cosine similarity, GPT-4o) composed
+by a `ClassifierPipeline` with short-circuit semantics. New signals
+(e.g. a Perspective API classifier) drop in without touching the handler.
+A `CATEGORY_PRIORITY` table makes warning routing explicit and testable.
+
+**AI/LLM integration.** OpenAI Chat Completions in JSON mode, with
+`tenacity` exponential-backoff retries on transient API errors,
+per-request timeouts, and response clamping. Sentence-transformers
+exemplars are pre-baked into the Docker image so cold starts don't pull
+the model from HuggingFace at runtime.
+
+**Container & Kubernetes hygiene.** Multi-stage Dockerfile, non-root
+UID 1000, read-only rootfs, `HEALTHCHECK`, pre-fetched embedding model.
+K8s manifests with startup/readiness/liveness probes, CPU + memory
+requests + limits, dropped capabilities, `seccompProfile: RuntimeDefault`,
+`automountServiceAccountToken: false`, rolling update with
+`maxUnavailable: 0`, kustomization, and Bitnami sealed secrets.
+
+**Testing discipline.** 46 pytest tests, fully mocked (no network),
+sub-second runtime. Coverage of: legal-justification guard, word
+boundaries, pipeline short-circuiting, classifier exception resilience,
+LLM response parsing edge cases (malformed JSON, markdown fences,
+unknown categories, out-of-range scores), priority routing,
+Slack-history failure paths, and FastAPI probes via `httpx`'s
+`ASGITransport`.
+
+**CI/CD & dev experience.** GitHub Actions runs `ruff check`,
+`ruff format --check`, `mypy --strict`, the pytest matrix on Python 3.11
+and 3.12, and a Docker buildx smoke build. Dependabot batches runtime,
+dev, GitHub-actions, and Dockerfile updates. `pyproject.toml` centralises
+ruff, mypy, pytest, and coverage configuration.
+
+**Security awareness.** Real threat-modelling table in the
+[Security model](#security-model) section — forged events, replays,
+retry storms, long-running handlers, container compromise, secret
+leakage, dependency drift, each paired with a concrete mitigation.
 
 ---
 
