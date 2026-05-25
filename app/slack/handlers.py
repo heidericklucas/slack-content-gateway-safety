@@ -9,6 +9,7 @@ injected clients so the handler is trivially testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -31,7 +32,7 @@ class MessageHandler:
     slack_client: AsyncWebClient
     settings: Settings
 
-    async def handle(self, event: dict) -> None:
+    async def handle(self, event: dict[str, Any]) -> None:
         """Entry point — invoked by the bolt event listener."""
 
         if not self._should_process(event):
@@ -53,7 +54,7 @@ class MessageHandler:
         finally:
             structlog.contextvars.clear_contextvars()
 
-    def _should_process(self, event: dict) -> bool:
+    def _should_process(self, event: dict[str, Any]) -> bool:
         if event.get("type") != "message":
             return False
         # Ignore bot echoes, edits, deletes, joins/leaves, etc.
@@ -73,7 +74,7 @@ class MessageHandler:
             logger.info("slack_history_unavailable", error=exc.response.get("error", "unknown"))
             return []
 
-        messages = list(reversed(response.get("messages", [])))
+        messages: list[dict[str, Any]] = list(reversed(response.get("messages", [])))
         return [
             f"{m.get('user', '')}: {m['text']}"
             for m in messages

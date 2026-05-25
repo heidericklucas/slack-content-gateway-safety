@@ -44,8 +44,10 @@ def build_pipeline(
     so we can warm it up at startup.
     """
 
+    from app.classifier.base import AsyncClassifier
+
     embedding_classifier: EmbeddingThreatClassifier | None = None
-    classifiers: list = [KeywordClassifier()]
+    classifiers: list[AsyncClassifier] = [KeywordClassifier()]
     if settings.embedding_enabled:
         embedding_classifier = EmbeddingThreatClassifier(
             model_name=settings.embedding_model,

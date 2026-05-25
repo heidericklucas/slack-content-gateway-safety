@@ -78,4 +78,4 @@ def get_settings() -> Settings:
     Cached so the (potentially expensive) env parsing only runs once per process.
     """
 
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

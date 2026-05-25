@@ -48,7 +48,8 @@ def _default_model_loader(model_name: str) -> SentenceTransformer:
 
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(model_name)
+    model: SentenceTransformer = SentenceTransformer(model_name)
+    return model
 
 
 @dataclass(slots=True)
@@ -68,10 +69,11 @@ class EmbeddingThreatClassifier(AsyncClassifier):
         if self._model is not None:
             return
         logger.info("embedding_model_loading", model=self.model_name)
-        self._model = await asyncio.to_thread(self.model_loader, self.model_name)
+        model = await asyncio.to_thread(self.model_loader, self.model_name)
         self._exemplar_embeddings = await asyncio.to_thread(
-            self._model.encode, list(THREAT_EXEMPLARS), convert_to_tensor=True
+            model.encode, list(THREAT_EXEMPLARS), convert_to_tensor=True
         )
+        self._model = model
         logger.info("embedding_model_ready", model=self.model_name, exemplars=len(THREAT_EXEMPLARS))
 
     async def classify(self, text: str, context: list[str]) -> Verdict:
