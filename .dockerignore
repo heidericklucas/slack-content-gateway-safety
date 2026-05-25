@@ -1,0 +1,39 @@
+.git
+.gitignore
+.github
+.dockerignore
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+build
+dist
+.venv
+venv
+env
+
+# Test / lint caches
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode
+
+# Docs / repo housekeeping (not needed at runtime)
+README.md
+LICENSE
+CONTRIBUTING.md
+docs
+k8s
+tests
