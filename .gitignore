@@ -26,6 +26,9 @@ env/
 .env.*
 !.env.example
 
+# Secret manager bindings (local-only)
+.infisical.json
+
 # Editors / OS
 .DS_Store
 .idea/
