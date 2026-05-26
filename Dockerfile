@@ -27,7 +27,12 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 WORKDIR /build
 
 COPY requirements.txt ./
+# Install CPU-only PyTorch from the dedicated index first. Without this,
+# `pip install torch` (a transitive dep of sentence-transformers) pulls
+# ~1.5GB of CUDA wheels (cudnn, nccl, cusparselt, triton, …) that this
+# CPU inference workload would never use.
 RUN pip install --upgrade pip \
+ && pip install --index-url https://download.pytorch.org/whl/cpu torch \
  && pip install -r requirements.txt
 
 ARG EMBEDDING_MODEL=sentence-transformers/paraphrase-MiniLM-L6-v2
